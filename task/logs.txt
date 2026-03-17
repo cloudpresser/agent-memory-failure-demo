@@ -1,0 +1,34 @@
+[2026-03-17T10:00:00.000Z] INFO  Application started, listening on port 3000
+[2026-03-17T10:00:00.012Z] INFO  Connected to database (pool size: 5)
+[2026-03-17T10:00:00.015Z] INFO  Cache initialized (TTL: 60000ms)
+[2026-03-17T10:00:01.102Z] INFO  POST /api/checkout userId=u001 price=50.00
+[2026-03-17T10:00:01.105Z] DEBUG cache miss userId=u001
+[2026-03-17T10:00:01.110Z] DEBUG getUserType query userId=u001 result="standard"
+[2026-03-17T10:00:01.111Z] DEBUG normalizeString input="standard" output="standard"
+[2026-03-17T10:00:01.112Z] DEBUG calculateDiscount price=50.00 userType="standard"
+[2026-03-17T10:00:01.113Z] INFO  checkout complete userId=u001 orderId=ORD-1710673201-a3f2 final=$50.00 discountApplied=false
+[2026-03-17T10:00:01.114Z] INFO  response 200 OK (12ms)
+[2026-03-17T10:00:05.200Z] INFO  POST /api/checkout userId=u002 price=200.00
+[2026-03-17T10:00:05.202Z] DEBUG cache miss userId=u002
+[2026-03-17T10:00:05.207Z] DEBUG getUserType query userId=u002 result="premium"
+[2026-03-17T10:00:05.208Z] DEBUG normalizeString input="premium" output="premium"
+[2026-03-17T10:00:05.209Z] DEBUG calculateDiscount price=200.00 userType="premium"
+[2026-03-17T10:00:05.210Z] INFO  checkout complete userId=u002 orderId=ORD-1710673205-b7e1 final=$180.00 discountApplied=true
+[2026-03-17T10:00:05.211Z] INFO  response 200 OK (11ms)
+[2026-03-17T10:00:12.500Z] INFO  POST /api/checkout userId=u003 price=150.00
+[2026-03-17T10:00:12.502Z] DEBUG cache miss userId=u003
+[2026-03-17T10:00:12.508Z] DEBUG getUserType query userId=u003 result="VIP"
+[2026-03-17T10:00:12.509Z] DEBUG normalizeString input="VIP" output="vip"
+[2026-03-17T10:00:12.510Z] DEBUG calculateDiscount price=150.00 userType="vip"
+[2026-03-17T10:00:12.511Z] WARN  no discount rule matched for userType="vip"
+[2026-03-17T10:00:12.512Z] INFO  checkout complete userId=u003 orderId=ORD-1710673212-c9d4 final=$150.00 discountApplied=false
+[2026-03-17T10:00:12.513Z] INFO  response 200 OK (13ms)
+[2026-03-17T10:00:15.001Z] INFO  GET /api/health status=ok uptime=15001ms
+[2026-03-17T10:00:20.100Z] INFO  POST /api/checkout userId=u003 price=75.00
+[2026-03-17T10:00:20.101Z] DEBUG cache hit userId=u003 cachedType="VIP"
+[2026-03-17T10:00:20.102Z] DEBUG normalizeString input="VIP" output="vip"
+[2026-03-17T10:00:20.103Z] DEBUG calculateDiscount price=75.00 userType="vip"
+[2026-03-17T10:00:20.104Z] WARN  no discount rule matched for userType="vip"
+[2026-03-17T10:00:20.105Z] INFO  checkout complete userId=u003 orderId=ORD-1710673220-d1a8 final=$75.00 discountApplied=false
+[2026-03-17T10:00:20.106Z] INFO  response 200 OK (6ms)
+[2026-03-17T10:00:25.000Z] INFO  Cache stats: size=3 ttlMs=60000

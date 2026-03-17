@@ -1,0 +1,61 @@
+$ npm test
+
+ PASS  tests/user.test.ts
+  getUserType
+    ✓ returns "standard" for u001 (2ms)
+    ✓ returns "premium" for u002 (1ms)
+    ✓ returns "VIP" for u003 (1ms)
+    ✓ throws for unknown user (1ms)
+
+ PASS  tests/config.test.ts
+  DISCOUNT_RATES
+    ✓ standard rate is 0 (1ms)
+    ✓ premium rate is 0.1 (1ms)
+    ✓ VIP rate is 0.2 (1ms)
+  isValidDiscountRate
+    ✓ accepts 0 (1ms)
+    ✓ accepts 0.2 (0ms)
+    ✓ rejects 0.5 (1ms)
+    ✓ rejects negative (0ms)
+
+ PASS  tests/cache.test.ts
+  UserType cache
+    ✓ returns null for uncached user (1ms)
+    ✓ returns cached value (1ms)
+    ✓ stores value exactly as provided (1ms)
+    ✓ expires after TTL (2ms)
+    ✓ clearCache removes all entries (1ms)
+
+ PASS  tests/discount.test.ts
+  calculateDiscount
+    ✓ returns full price for standard users (1ms)
+    ✓ applies 10% discount for premium (1ms)
+    ✓ applies 20% discount for VIP (1ms)
+    ✓ returns 0 for zero price (0ms)
+    ✓ returns full price when discounts disabled (1ms)
+
+ FAIL  tests/checkout.test.ts
+  checkout
+    ✓ standard user pays full price (2ms)
+    ✓ premium user gets 10% off (1ms)
+    ✗ VIP user gets 20% off (3ms)
+
+      Expected: "$120.00"
+      Received: "$150.00"
+
+      at Object.<anonymous> (tests/checkout.test.ts:21:31)
+
+    ✓ generates unique order IDs (1ms)
+
+ PASS  tests/utils.test.ts
+  normalizeString
+    ✓ trims whitespace (1ms)
+    ✓ converts to lowercase (0ms)
+    ✓ handles mixed case with spaces (1ms)
+  formatCurrency
+    ✓ formats whole numbers (0ms)
+    ✓ formats decimals (1ms)
+
+Test Suites: 1 failed, 5 passed, 6 total
+Tests:       1 failed, 22 passed, 23 total
+Time:        1.847s
