@@ -34,37 +34,37 @@ The codebase includes red herrings (a caching layer, auth middleware, config fil
 
 ## Two Agents
 
-Both agents get the same tools (`read_file`, `search_code`, `read_logs`, `read_test_results`, `list_files`) and the same task prompt. The only difference is how they manage memory.
+Both agents read the same 11 files in the same order — logs, bug report, then every source file. The investigation path is identical. The **only** difference is how they manage memory between reads.
 
 ### Agent A: Summarizing
 
 ```
-for each step:
-    1. System prompt includes running_summary (starts empty)
-    2. Agent reasons + calls tools
-    3. Separate LLM call compresses everything into a summary
-    4. Previous messages are DISCARDED
-    5. Next step starts with only the summary
+for each file:
+    1. Read the file
+    2. LLM call compresses (running_summary + file content) → new summary
+    3. Raw file content is DISCARDED
+after all files:
+    4. LLM concludes from summary alone
 ```
 
-After investigating `utils.ts`, the summary might say:
+After reading `utils.ts`, the summary might say:
 
-> *"The normalizeString utility performs string normalization (trimming and case conversion) on user input before passing to discount calculation."*
+> *"The findings from utils.ts reveal several utility functions that handle string normalization, validation, and formatting."*
 
-Accurate — but it's lost the **direction** of the conversion (uppercase → lowercase) and the **exact input** (`"VIP"`). By the time the agent needs to compare values across files, that evidence is gone.
+Accurate — but it's lost **what** normalization means (`toLowerCase()`), the **direction** (uppercase → lowercase), and the **exact input** (`"VIP"`). After 11 rounds of compression, the summary retains patterns but not precise values.
 
 ### Agent B: Retrieval
 
 ```
-for each step:
-    1. System prompt includes retrieved evidence from trace log
-    2. Agent reasons + calls tools
-    3. Raw tool outputs are APPENDED to trace log (never overwritten)
-    4. Retrieval step selects relevant entries for next step
-    5. Agent reasons with full evidence references
+for each file:
+    1. Read the file
+    2. APPEND raw content to trace log (never overwrite)
+after all files:
+    3. LLM retrieval selects most relevant raw entries
+    4. LLM concludes from raw evidence
 ```
 
-Nothing is ever destroyed. When the agent needs to correlate `"VIP"` from `user.ts` with `"vip"` from `utils.ts` and `"VIP"` from `discount.ts`, all three raw values are available in the trace.
+Nothing is ever destroyed. When the agent needs to correlate `"VIP"` from `user.ts` with `"vip"` from `utils.ts` and `"VIP"` from `discount.ts`, all three raw values are in the trace — the retrieval step surfaces them verbatim.
 
 ## Running the Demo
 
@@ -103,46 +103,65 @@ python run.py --agent b    # retrieval only
 MODEL=gpt-4o python run.py
 ```
 
-### Expected Output
+### Actual Results (GPT-4o-mini)
+
+Both agents read all 11 files in the same order. The only difference is memory management.
+
+**Summarizing Agent** — concluded after 11 steps, 9,624 tokens:
 
 ```
-════════════════════════════════════════════════════════════════
-  Agent Memory Failure Demo
-  Task: VIP Discount Bug Investigation
-  Model: gpt-4o-mini
-════════════════════════════════════════════════════════════════
+CONCLUSION: The root cause of the issue is that the VIP discount logic is not
+being triggered due to a misconfiguration in the discount application function,
+which fails to recognize VIP users correctly.
 
-▸ Summarizing Agent
-  Steps: 5
-  Conclusion:
-    CONCLUSION: The discount logic has a user type handling mismatch
-    causing the VIP discount to not be applied correctly.
+DATA FLOW:
+  step 1: checkout(user=u003, item_price=150)
+  step 2: calculate_discount(user=u003, item_price=150)       ← wrong function name
+  step 3: get_discount_rate(user.membership)                   ← hallucinated function
+  step 4: apply_discount(item_price=150, discount_rate=0)      ← hallucinated function
 
-▸ Retrieval Agent
-  Steps: 4
-  Conclusion:
-    CONCLUSION: Case mismatch — getUserType returns "VIP" (uppercase),
-    normalizeString in utils.ts converts it to "vip" (lowercase), but
-    calculateDiscount in discount.ts checks for "VIP" (uppercase).
-    The === comparison fails because "vip" !== "VIP".
-    DATA FLOW:
-      step 1: getUserType("u003") → "VIP" (user.ts:31)
-      step 2: normalizeString("VIP") → "vip" (utils.ts:12, calls .toLowerCase())
-      step 3: calculateDiscount(150, "vip") — checks "vip" === "VIP" → false (discount.ts:33)
-      step 4: Falls through to return price — no discount applied
-    EVIDENCE: user.ts:18, utils.ts:12, checkout.ts:29, discount.ts:33
-
-────────────────────────────────────────────────────────────────
-  Comparison
-────────────────────────────────────────────────────────────────
-
-  Metric                              Summarizing     Retrieval
-  ─────────────────────────────────── ─────────────── ───────────────
-  Mentions case sensitivity            no              yes
-  Mentions exact string values         no              yes
-  Specific root cause identified       no              yes
-  Vague/general conclusion             yes             no
+EVIDENCE:
+  - discount.ts:30 (calculate_discount function)               ← wrong line number
+  - discount.ts:15 (get_discount_rate function)                ← doesn't exist
+  - discount.ts:50 (apply_discount function)                   ← doesn't exist
 ```
+
+After 11 rounds of summarization, the agent lost all specific details. It hallucinated function names (`get_discount_rate`, `apply_discount`) that don't exist in the codebase, cited line numbers that are wrong, and never identified case sensitivity or `normalizeString` as the mechanism.
+
+**Retrieval Agent** — concluded after 11 steps, 726 tokens:
+
+```
+CONCLUSION: The root cause of the issue is that the user type is being normalized
+to lowercase ("vip") but the discount calculation logic is not handling the
+lowercase user type correctly, resulting in no discount being applied.
+
+DATA FLOW:
+  step 1: getUserType(userId="u003") returns userType="VIP"
+  step 2: normalizeString(input="VIP") returns output="vip"
+  step 3: calculateDiscount(price=150.00, userType="vip") is called, but the
+          discount logic does not recognize "vip" as a valid user type for
+          applying the 20% discount.
+
+EVIDENCE:
+  - getUserType function logs the user type as "VIP"
+  - normalizeString function confirms the conversion to lowercase
+  - calculateDiscount is called with userType="vip", which does not match
+    the expected uppercase "VIP" for applying the discount
+```
+
+The retrieval agent preserved raw evidence from every file and produced the correct root cause with exact string values at each step in the data flow.
+
+**Comparison:**
+
+| Metric                         | Summarizing | Retrieval |
+|--------------------------------|:-----------:|:---------:|
+| Steps taken                    | 11          | 11        |
+| Tokens used                    | 9,624       | 726       |
+| Mentions case sensitivity      | no          | yes       |
+| Mentions exact string values   | no          | yes       |
+| Mentions normalizeString       | no          | yes       |
+| Specific root cause identified | no          | yes       |
+| Hallucinated function names    | yes         | no        |
 
 *Note: LLM outputs are non-deterministic. Results vary between runs, but the structural advantage of retrieval is consistent across repeated trials.*
 
