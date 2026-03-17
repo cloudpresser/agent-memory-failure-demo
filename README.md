@@ -8,11 +8,11 @@ This isn't a cherry-picked failure. It's a structural property of lossy memory t
 
 ## The Problem
 
-Most agent systems manage long contexts by summarizing. After each reasoning step, the conversation is compressed into a shorter representation, and the original messages are discarded. This saves tokens and keeps the context window manageable.
+Agent systems manage long contexts in various ways — sliding windows, summarization, retrieval, or hybrid approaches. Some frameworks compress only at specific transitions (planning to execution, or when context exceeds a threshold). Others are more aggressive — custom-designed workflows for cost control or high-throughput systems often rely on rolling summarization to stay within token budgets.
 
-The problem: summaries optimize for **salience**. High-level patterns survive compression. Low-level details don't. When the correct answer depends on a detail that looks unimportant in isolation — like whether a string is `"VIP"` or `"vip"` — summarization systematically drops it.
+The more heavily a system relies on lossy compression of working memory — whether through explicit summarization, context truncation, or aggressive windowing — the more vulnerable it is to this failure mode. Summaries optimize for **salience**. High-level patterns survive compression. Low-level details don't. When the correct answer depends on a detail that looks unimportant in isolation — like whether a string is `"VIP"` or `"vip"` — lossy compression systematically drops it.
 
-This demo makes that failure concrete and reproducible.
+This demo uses per-step summarization to make the effect visible, but the underlying principle applies to any architecture that discards raw observations before the final reasoning step.
 
 ## The Task
 
@@ -316,7 +316,7 @@ This is a more dangerous failure mode:
 
 ## Why This Matters
 
-This isn't an academic exercise. Summarization-based memory is the default in most production agent systems — LangChain's `ConversationSummaryMemory`, AutoGPT's context compression, and countless custom implementations. They all share the same failure mode.
+This isn't an academic exercise. Context management is an unsolved problem in agent systems. LangChain offers `ConversationSummaryMemory` and `ConversationSummaryBufferMemory`. AutoGPT used aggressive context compression. Many production systems use custom rolling summarization for cost control. Even systems that primarily use sliding windows face the same tradeoff when context exceeds the window — what gets kept, and what gets discarded? Any architecture that makes lossy transformations to working memory is vulnerable.
 
 The failure is **systematic, not random**:
 - It happens whenever the critical detail has low salience in isolation
