@@ -209,17 +209,80 @@ EVIDENCE: logs.txt:21, utils.ts:11-12, discount.ts:33, logs.txt:23
 
 Correct root cause, correct data flow, correct file:line references.
 
-**Comparison across models:**
+### Actual Results (GPT-5.4)
 
-| Metric                         | 4o-mini Summarizing | 4o-mini Retrieval | 4o Summarizing | 4o Retrieval |
-|--------------------------------|:-------------------:|:-----------------:|:--------------:|:------------:|
-| Mentions case sensitivity      | no                  | yes               | no             | yes          |
-| Mentions normalizeString       | no                  | yes               | no             | yes          |
-| Specific root cause identified | no                  | yes               | no             | yes          |
-| Hallucinated function names    | yes                 | no                | yes            | no           |
-| Correct file:line references   | no                  | partial           | no             | yes          |
+The strongest model available. The summarizing agent finally gets the *general direction* right — but the quality gap remains.
 
-The stronger model made the summaries *sound* better without fixing the structural problem. Both models, under summarization, lost the same critical detail.
+**Summarizing Agent** — 9,936 tokens:
+
+```
+CONCLUSION: checkout.ts lowercases the user tier to "vip" before applying
+a checkout-local comparison that only recognizes the uppercase string "VIP",
+so user u003 is routed to the no-discount branch and charged full price.
+
+DATA FLOW:
+  step 2: checkout.ts fetches the user record for u003; the user service
+          returns tier string "VIP".
+  step 4: inside checkout.ts, the tier is normalized with a lowercase
+          operation, producing exact string "vip".
+  step 5: checkout then performs its own tier check against exact string "VIP"
+          instead of using the normalized value consistently or delegating
+          to calculateDiscount.                                              ← wrong
+  step 6: comparison "vip" === "VIP" evaluates false.
+
+EVIDENCE:
+  - checkout.ts: the checkout path performs user-tier normalization and then
+    a checkout-local VIP comparison                                          ← wrong mechanism
+```
+
+GPT-5.4 correctly identified the `"VIP"` → `"vip"` transformation and that it causes the comparison to fail. But it invented a wrong mechanism: it claims checkout.ts performs "its own tier check" and says the bug is "not calculateDiscount." In reality, checkout.ts delegates to `calculateDiscount` — the comparison happens there, not in checkout. No specific file:line references.
+
+**Retrieval Agent** — 2,323 tokens:
+
+```
+CONCLUSION: VIP discounts fail because checkout() normalizes the database
+value "VIP" to "vip", but calculateDiscount() only matches the uppercase
+string "VIP", so VIP users fall through to no discount.
+
+DATA FLOW:
+  step 1:  checkout("u003", 150) is called in checkout.ts.
+  step 2:  getCachedUserType("u003") returns no value / cache miss.
+  step 3:  getUserType("u003") returns the exact stored type string "VIP".
+  step 4:  setCachedUserType("u003", "VIP") stores the raw user type in cache.
+  step 5:  normalizeString("VIP") returns "vip" because it does trim().toLowerCase().
+  step 6:  calculateDiscount(150, "vip") is called.
+  step 7:  inside calculateDiscount, the "premium" check fails: "vip" !== "premium".
+  step 8:  inside calculateDiscount, the VIP check fails: "vip" !== "VIP".
+  step 9:  calculateDiscount returns the original price 150.
+  step 10: discountApplied = finalPrice < price evaluates to 150 < 150 = false.
+  step 11: formatCurrency(150) produces the final price string.
+
+EVIDENCE:
+  - logs.txt:18-24 (exact runtime path for user u003)
+  - checkout.ts:22-32 (checkout flow: cache → getUserType → normalizeString → calculateDiscount)
+  - user.ts:26-31 (getUserType returns type string exactly as stored)
+  - utils.ts:11-12 (normalizeString converts "VIP" to "vip")
+  - discount.ts:29-35 (discount logic matches "premium" and uppercase "VIP" only)
+  - discount.ts:43-44 (isDiscountEligible also expects uppercase "VIP")
+  - config.ts:6-10 (VIP rate is correctly configured as 0.2)
+```
+
+A forensic-quality 12-step trace with every function call, exact string values, and correct file:line references across 7 files. The retrieval agent even identified the `isDiscountEligible` helper function's matching inconsistency.
+
+**Comparison across all three models:**
+
+| Metric                         | 4o-mini Sum | 4o-mini Ret | 4o Sum | 4o Ret | 5.4 Sum | 5.4 Ret |
+|--------------------------------|:-----------:|:-----------:|:------:|:------:|:-------:|:-------:|
+| Mentions case sensitivity      | no          | yes         | no     | yes    | yes     | yes     |
+| Mentions normalizeString       | no          | yes         | no     | yes    | yes*    | yes     |
+| Correct mechanism              | no          | yes         | no     | yes    | no      | yes     |
+| Hallucinated functions         | yes         | no          | yes    | no     | no      | no      |
+| Correct file:line references   | no          | partial     | no     | yes    | no      | yes     |
+| Forensic data flow trace       | no          | no          | no     | no     | no      | yes     |
+
+*\* GPT-5.4's summarizing agent mentions "lowercase operation" but attributes the comparison to checkout.ts rather than calculateDiscount — the mechanism is wrong even though the symptom is correctly identified.*
+
+**The pattern across models:** Stronger models narrow the gap in *symptom identification* but not in *mechanistic accuracy*. GPT-5.4's summarizing agent sounds convincing — it correctly identifies the case transformation — but invents a wrong explanation for where the comparison happens. The retrieval agent, with access to raw evidence, produces a precise forensic trace every time.
 
 ## Why This Matters
 
@@ -229,7 +292,7 @@ The failure is **systematic, not random**:
 - It happens whenever the critical detail has low salience in isolation
 - It gets worse as investigation length increases (more compression rounds)
 - It's invisible — the summary reads as correct and complete
-- Stronger models make better summaries but the structural loss remains — GPT-4o produced a more confident wrong answer than GPT-4o-mini
+- Stronger models make better summaries but the structural loss remains — GPT-4o produced a more confident wrong answer than GPT-4o-mini, and GPT-5.4 produced a plausible-sounding but mechanistically wrong explanation
 
 The fix isn't "better summarization." It's **never destroying raw evidence**:
 - Summarize for *navigation*, not for *storage*
