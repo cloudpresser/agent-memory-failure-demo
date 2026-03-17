@@ -165,6 +165,62 @@ The retrieval agent preserved raw evidence from every file and produced the corr
 
 *Note: LLM outputs are non-deterministic. Results vary between runs, but the structural advantage of retrieval is consistent across repeated trials.*
 
+### Actual Results (GPT-4o)
+
+Same experiment, stronger model. The failure persists.
+
+**Summarizing Agent** — 9,808 tokens:
+
+```
+CONCLUSION: The root cause is a missing condition in the applyDiscount function
+that fails to check for VIP status, resulting in no discount being applied.
+
+DATA FLOW:
+  1. checkout(userId: 'u003', itemPrice: 150) is called.
+  2. getUserDetails(userId: 'u003') returns { userId: 'u003', tier: 'VIP' }  ← hallucinated
+  3. calculateDiscount(userTier: 'VIP', itemPrice: 150) is called.
+  4. Inside calculateDiscount, the function checks for 'Premium' and 'Standard'
+     tiers but lacks a condition for 'VIP', defaulting to no discount.       ← wrong
+  5. applyDiscount(itemPrice: 150, discount: 0) is called.                   ← hallucinated
+
+EVIDENCE:
+  - discount.ts:22                                                           ← wrong line
+  - discount.ts:35 (applyDiscount)                                           ← doesn't exist
+```
+
+GPT-4o produced a *more confident* wrong answer. The summaries read better, but the same structural loss occurred: `normalizeString`, case sensitivity, and the exact `"VIP"` → `"vip"` transformation are all absent. It hallucinated `applyDiscount` and `getUserDetails` — functions that don't exist — and wrongly concluded that `calculateDiscount` lacks a VIP condition (it has one; the input is wrong).
+
+**Retrieval Agent** — 886 tokens:
+
+```
+CONCLUSION: The root cause is a case mismatch in the discount calculation logic;
+the userType is normalized to lowercase "vip", but the discount logic checks
+for uppercase "VIP".
+
+DATA FLOW:
+  step 1: getUserType retrieves user type for userId=u003, result is "VIP" (logs.txt:20)
+  step 2: normalizeString is called with input="VIP", output is "vip" (logs.txt:21, utils.ts:11-12)
+  step 3: calculateDiscount is called with price=150.00 and userType="vip" (logs.txt:22)
+  step 4: Discount logic checks if userType is "VIP" (discount.ts:33), but since
+          userType is "vip", no discount rule matches (logs.txt:23)
+
+EVIDENCE: logs.txt:21, utils.ts:11-12, discount.ts:33, logs.txt:23
+```
+
+Correct root cause, correct data flow, correct file:line references.
+
+**Comparison across models:**
+
+| Metric                         | 4o-mini Summarizing | 4o-mini Retrieval | 4o Summarizing | 4o Retrieval |
+|--------------------------------|:-------------------:|:-----------------:|:--------------:|:------------:|
+| Mentions case sensitivity      | no                  | yes               | no             | yes          |
+| Mentions normalizeString       | no                  | yes               | no             | yes          |
+| Specific root cause identified | no                  | yes               | no             | yes          |
+| Hallucinated function names    | yes                 | no                | yes            | no           |
+| Correct file:line references   | no                  | partial           | no             | yes          |
+
+The stronger model made the summaries *sound* better without fixing the structural problem. Both models, under summarization, lost the same critical detail.
+
 ## Why This Matters
 
 This isn't an academic exercise. Summarization-based memory is the default in most production agent systems — LangChain's `ConversationSummaryMemory`, AutoGPT's context compression, and countless custom implementations. They all share the same failure mode.
@@ -173,7 +229,7 @@ The failure is **systematic, not random**:
 - It happens whenever the critical detail has low salience in isolation
 - It gets worse as investigation length increases (more compression rounds)
 - It's invisible — the summary reads as correct and complete
-- Stronger models make better summaries, but the structural loss remains
+- Stronger models make better summaries but the structural loss remains — GPT-4o produced a more confident wrong answer than GPT-4o-mini
 
 The fix isn't "better summarization." It's **never destroying raw evidence**:
 - Summarize for *navigation*, not for *storage*
