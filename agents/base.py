@@ -102,14 +102,18 @@ Cache has been cleared and the issue persists — it's not a stale cache problem
 Config values for discount rates have been verified as correct.
 
 YOUR TASK:
-1. Investigate the codebase and application logs to find the root cause.
-2. Once identified, trace the EXACT data flow for user u003 purchasing a $150 item.
-   List every function call in the chain and the exact string values at each step.
-3. State your conclusion with the specific root cause and evidence.
+1. Start by reading the application logs — they show the exact runtime values.
+2. Read each source file in the checkout flow to trace how values are transformed.
+   When a file imports a function from another module, READ that module too.
+3. Once identified, trace the EXACT data flow for user u003 purchasing a $150 item.
+   List every function call and the exact string values at each step.
+4. State your conclusion with the specific root cause and evidence.
 
-You have access to tools: list_files, read_file, search_code, read_logs, read_test_results.
-Investigate systematically. When you have identified the root cause with evidence,
-respond with your final conclusion in this format:
+You have tools: list_files, read_file, search_code, read_logs, read_test_results.
+Investigate systematically — read logs first, then trace the code path file by file.
+Do not conclude until you have read ALL files in the import chain.
+
+When ready, respond with your final conclusion in this format:
 
 CONCLUSION: <one-sentence root cause>
 DATA FLOW:
