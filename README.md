@@ -1,10 +1,10 @@
 # When Summaries Fail
 
-**A minimal demonstration of information loss in agent memory.**
+**A minimal demonstration of how lossy memory degrades mechanistic correctness in AI agents — even when the final answer looks right.**
 
-Two AI agents investigate the same bug. One compresses its context at each step. The other keeps raw evidence and retrieves on demand. The compressing agent loses a critical detail. The retrieval agent doesn't.
+Two AI agents investigate the same bug. One compresses its context at each step. The other keeps raw evidence and retrieves on demand. With weaker models, the compressing agent gets the wrong answer. With stronger models, it gets the *right* answer — but with the **wrong causal explanation**, pointing to the wrong code, citing nonexistent functions, and producing an unfalsifiable narrative.
 
-This isn't a cherry-picked failure — it's a **structural** failure mode. Any task where the answer depends on a low-salience detail (an exact string value, a specific line number, a precise configuration) is vulnerable to summarization loss.
+This isn't a cherry-picked failure. It's a structural property of lossy memory that becomes *harder to detect* as models improve.
 
 ## The Problem
 
@@ -284,6 +284,36 @@ A forensic-quality 12-step trace with every function call, exact string values, 
 
 **The pattern across models:** Stronger models narrow the gap in *symptom identification* but not in *mechanistic accuracy*. GPT-5.4's summarizing agent sounds convincing — it correctly identifies the case transformation — but invents a wrong explanation for where the comparison happens. The retrieval agent, with access to raw evidence, produces a precise forensic trace every time.
 
+## Mechanistic Fidelity vs Answer Accuracy
+
+The GPT-5.4 result reveals a deeper failure mode than "summaries cause wrong answers."
+
+Both agents arrive at the correct high-level diagnosis: a case mismatch between `"VIP"` and `"vip"` causes the discount to fail. But only one agent traces the *actual causal chain*. The other reconstructs a plausible story that happens to reach the right conclusion.
+
+| Claim | Summarizing (GPT-5.4) | Retrieval (GPT-5.4) | Actual Code |
+|---|---|---|---|
+| Where does the comparison happen? | "checkout-local VIP comparison" | `calculateDiscount` in `discount.ts:33` | `discount.ts:33` |
+| What calls what? | "instead of delegating to calculateDiscount" | `checkout` -> `normalizeString` -> `calculateDiscount` | `checkout.ts:29-31` |
+| Role of calculateDiscount | "not the issue" | "the comparison `"vip" === "VIP"` fails here" | It IS where the comparison fails |
+| Where would you apply the fix? | checkout.ts (wrong file) | discount.ts:33 or utils.ts:12 (correct) | discount.ts or utils.ts |
+
+The summarizing agent would lead an engineer to "fix" the wrong file. The retrieval agent points to the exact line that needs to change.
+
+This distinction matters because most evaluations only check **answer correctness** — did the agent identify the bug? By that metric, both agents pass with GPT-5.4. But answer correctness and **reasoning correctness** are different things:
+
+|  | Correct answer | Correct mechanism |
+|---|:-:|:-:|
+| Summarizing agent | yes | no |
+| Retrieval agent | yes | yes |
+
+**As models improve, memory failures don't disappear — they become harder to detect.** Weaker models under summarization produce obviously wrong answers (hallucinated functions, wrong conclusions). Stronger models produce *right answers with wrong justifications* — plausible-sounding causal stories that are unfalsifiable without the raw evidence.
+
+This is a more dangerous failure mode:
+- Harder to catch in evaluation (the answer looks correct)
+- Harder to debug (the reasoning sounds plausible)
+- Leads to wrong actions (fixing the wrong code, changing the wrong config)
+- Erodes trust invisibly (the system appears reliable until it isn't)
+
 ## Why This Matters
 
 This isn't an academic exercise. Summarization-based memory is the default in most production agent systems — LangChain's `ConversationSummaryMemory`, AutoGPT's context compression, and countless custom implementations. They all share the same failure mode.
@@ -292,7 +322,17 @@ The failure is **systematic, not random**:
 - It happens whenever the critical detail has low salience in isolation
 - It gets worse as investigation length increases (more compression rounds)
 - It's invisible — the summary reads as correct and complete
-- Stronger models make better summaries but the structural loss remains — GPT-4o produced a more confident wrong answer than GPT-4o-mini, and GPT-5.4 produced a plausible-sounding but mechanistically wrong explanation
+- Stronger models don't fix the problem — they mask it. Better priors produce better-sounding confabulations, not better reasoning
+
+In practice, the summarizing agent:
+- "fixes" the wrong code (checkout.ts instead of discount.ts)
+- introduces regressions from changes based on incorrect causal models
+- cannot justify its decisions when asked for evidence
+
+The retrieval agent's output is:
+- **debuggable** — every claim maps to a file:line reference
+- **auditable** — the evidence chain can be independently verified
+- **actionable** — it points to the exact line that needs to change
 
 The fix isn't "better summarization." It's **never destroying raw evidence**:
 - Summarize for *navigation*, not for *storage*
@@ -332,6 +372,8 @@ agent-memory-failure-demo/
 ## Takeaway
 
 > Never destroy raw evidence. Summarize for navigation, not for storage.
+
+> Lossy memory does not always degrade final answers, but it systematically degrades causal fidelity and verifiability. As models improve, this failure becomes harder to detect — incorrect reasoning produces correct answers.
 
 ## Author
 
